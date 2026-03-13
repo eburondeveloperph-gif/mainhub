@@ -1,9 +1,0 @@
-{
-  "name": "appeburon-automation",
-  "description": "Eburon Automation Console",
-  "requestFramePermissions": [
-    "microphone",
-    "camera",
-    "geolocation"
-  ]
-}
