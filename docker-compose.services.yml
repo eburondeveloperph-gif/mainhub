@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: always
+
+  stt:
+    build: ./services/stt
+    container_name: stt-service
+    ports:
+      - "8001:8001"
+    restart: always
+
+  tts:
+    build: ./services/tts
+    container_name: tts-service
+    ports:
+      - "8002:8002"
+    restart: always
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    ports:
+      - "8080:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WEBUI_SECRET_KEY=t0p-s3cr3t-passw0rd
+    volumes:
+      - open-webui-data:/app/backend/data
+    depends_on:
+      - ollama
+    restart: always
+
+volumes:
+  ollama-data:
+  open-webui-data:

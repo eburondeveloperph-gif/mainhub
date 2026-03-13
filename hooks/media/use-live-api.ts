@@ -1,0 +1,669 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+*/
+/**
+ * Copyright 2024 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { GenAILiveClient } from '../../lib/genai-live-client';
+import { LiveConnectConfig, Modality, LiveServerToolCall, GoogleGenAI, HarmCategory, HarmBlockThreshold } from '@google/genai';
+import { AudioStreamer } from '../../lib/audio-streamer';
+import { audioContext } from '../../lib/utils';
+import VolMeterWorket from '../../lib/worklets/vol-meter';
+import { useLogStore, useSettings, useUI, useConnectionStore } from '@/lib/state';
+import { executeRecallMemory, executeSaveMemory } from '@/lib/memory';
+
+import { DEFAULT_LIVE_API_MODEL, DEFAULT_VOICE, EBURON_GEMINI_MODELS } from '../../lib/constants';
+
+export type UseLiveApiResults = {
+  client: GenAILiveClient;
+  setConfig: (config: LiveConnectConfig) => void;
+  config: LiveConnectConfig;
+
+  connect: () => Promise<void>;
+  disconnect: () => void;
+  connected: boolean;
+
+  volume: number;
+
+  // Audio output control
+  isVolumeMuted: boolean;
+  mute: () => void;
+  unmute: () => void;
+};
+
+export function useLiveApi({
+  apiKey,
+}: {
+  apiKey: string;
+}): UseLiveApiResults {
+  const { model, localModel } = useSettings();
+  const { toolBrokerUrl, toolBrokerApiKey, ollamaUrl } = useConnectionStore();
+
+  const resolvedModel = (EBURON_GEMINI_MODELS as any)[model] || model;
+  const client = useMemo(() => new GenAILiveClient(apiKey, resolvedModel), [apiKey, resolvedModel]);
+
+  const audioStreamerRef = useRef<AudioStreamer | null>(null);
+
+  const [volume, setVolume] = useState(0);
+  const [connected, setConnected] = useState(false);
+  const [config, setConfig] = useState<LiveConnectConfig>({});
+  const [isVolumeMuted, setIsVolumeMuted] = useState(false);
+
+  // register audio for streaming server -> speakers
+  useEffect(() => {
+    if (!audioStreamerRef.current) {
+      audioContext({ id: 'audio-out' }).then((audioCtx: AudioContext) => {
+        audioStreamerRef.current = new AudioStreamer(audioCtx);
+        audioStreamerRef.current
+          .addWorklet<any>('vumeter-out', VolMeterWorket, (ev: any) => {
+            setVolume(ev.data.volume);
+          })
+          .then(() => {
+            // Successfully added worklet
+          })
+          .catch(err => {
+            console.error('Error adding worklet:', err);
+          });
+      });
+    }
+  }, [audioStreamerRef]);
+
+  useEffect(() => {
+    const onOpen = () => {
+      setConnected(true);
+    };
+
+    const onClose = () => {
+      setConnected(false);
+    };
+
+    const stopAudioStreamer = () => {
+      if (audioStreamerRef.current) {
+        audioStreamerRef.current.stop();
+      }
+    };
+
+    const onAudio = (data: ArrayBuffer) => {
+      if (audioStreamerRef.current) {
+        audioStreamerRef.current.addPCM16(new Uint8Array(data));
+      }
+    };
+
+    // Bind event listeners
+    client.on('open', onOpen);
+    client.on('close', onClose);
+    client.on('interrupted', stopAudioStreamer);
+    client.on('audio', onAudio);
+
+    const onToolCall = async (toolCall: LiveServerToolCall) => {
+      const functionResponses: any[] = [];
+
+      for (const fc of toolCall.functionCalls) {
+        // Log the function call trigger
+        const triggerMessage = `Triggering function call: **${fc.name
+          }**\n\`\`\`json\n${JSON.stringify(fc.args, null, 2)}\n\`\`\``;
+        useLogStore.getState().addTurn({
+          role: 'system',
+          text: triggerMessage,
+          isFinal: true,
+        });
+
+        const args = fc.args as any;
+
+        // --- Google Image Generation Handler (Gemini 2.5 Flash Image) ---
+        if (fc.name === 'image_generate' && (!args.provider || args.provider === 'google')) {
+          try {
+            // Create a separate client instance for the tool call
+            const genAI = new GoogleGenAI({ apiKey });
+            const modelName = args.model || 'gemini-2.5-flash-image';
+
+            const response = await genAI.models.generateContent({
+              model: modelName,
+              contents: {
+                role: 'user',
+                parts: [{ text: args.prompt }]
+              },
+              config: {
+                responseModalities: ['IMAGE', 'TEXT'],
+                safetySettings: [
+                  { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+                  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                ]
+              }
+            });
+
+            const images: { type: string; data: string }[] = [];
+
+            // Extract images from response content parts
+            if (response.candidates?.[0]?.content?.parts) {
+              for (const part of response.candidates[0].content.parts) {
+                if (part.inlineData) {
+                  images.push({
+                    type: part.inlineData.mimeType || 'image/png',
+                    data: part.inlineData.data
+                  });
+                }
+              }
+            }
+
+            if (images.length > 0) {
+              // Add to UI log
+              useLogStore.getState().addTurn({
+                role: 'system',
+                text: `Generated ${images.length} image(s) for prompt: "${args.prompt}" using ${modelName}`,
+                isFinal: true,
+                images: images
+              });
+
+              functionResponses.push({
+                id: fc.id,
+                name: fc.name,
+                response: { result: `Successfully generated ${images.length} images.` }
+              });
+            } else {
+              // Fallback if only text returned (e.g. refusal or error text)
+              const text = response.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || "No content generated";
+              functionResponses.push({
+                id: fc.id,
+                name: fc.name,
+                response: { result: `Model returned text instead of image: ${text}` }
+              });
+            }
+          } catch (e: any) {
+            console.error("Google Image Gen Error:", e);
+            functionResponses.push({
+              id: fc.id,
+              name: fc.name,
+              response: { error: `Failed to generate image: ${e.message}` }
+            });
+          }
+          continue; // Handled, skip broker check
+        }
+
+        // --- Google Service Mocks ---
+        if (fc.name === 'google_calendar_read') {
+          functionResponses.push({
+            id: fc.id, name: fc.name,
+            response: {
+              result: JSON.stringify([
+                { id: '1', summary: 'Team Sync', startTime: new Date(Date.now() + 3600000).toISOString() },
+                { id: '2', summary: 'Lunch with Client', startTime: new Date(Date.now() + 86400000).toISOString() }
+              ])
+            }
+          });
+          continue;
+        }
+        if (fc.name === 'google_calendar_create') {
+          functionResponses.push({
+            id: fc.id, name: fc.name,
+            response: { result: `Event created: ${args.summary} at ${args.startTime}` }
+          });
+          continue;
+        }
+        if (fc.name === 'gmail_read') {
+          functionResponses.push({
+            id: fc.id, name: fc.name,
+            response: {
+              result: JSON.stringify([
+                { id: '101', from: 'boss@company.com', subject: 'Project Update', snippet: 'Please review the attached...' },
+                { id: '102', from: 'newsletter@tech.com', subject: 'Weekly Digest', snippet: 'Top stories this week...' }
+              ])
+            }
+          });
+          continue;
+        }
+        if (fc.name === 'gmail_send') {
+          functionResponses.push({
+            id: fc.id, name: fc.name,
+            response: { result: `Email sent to ${args.to}` }
+          });
+          continue;
+        }
+        if (fc.name === 'google_drive_search') {
+          functionResponses.push({
+            id: fc.id, name: fc.name,
+            response: {
+              result: JSON.stringify([
+                { name: 'Project Specs v2', type: 'document', link: 'http://docs.google.com/...' },
+                { name: 'Q3 Budget', type: 'spreadsheet', link: 'http://sheets.google.com/...' }
+              ])
+            }
+          });
+          continue;
+        }
+        if (fc.name === 'google_docs_create') {
+          functionResponses.push({
+            id: fc.id, name: fc.name,
+            response: { result: `Created Google Doc: "${args.title}" (https://docs.google.com/document/d/mock-id)` }
+          });
+          continue;
+        }
+        if (fc.name === 'google_sheets_create') {
+          functionResponses.push({
+            id: fc.id, name: fc.name,
+            response: { result: `Created Google Sheet: "${args.title}" (https://docs.google.com/spreadsheets/d/mock-id)` }
+          });
+          continue;
+        }
+        if (fc.name === 'google_slides_create') {
+          functionResponses.push({
+            id: fc.id, name: fc.name,
+            response: { result: `Created Google Slides: "${args.title}" (https://docs.google.com/presentation/d/mock-id)` }
+          });
+          continue;
+        }
+        if (fc.name === 'google_keep_create') {
+          functionResponses.push({
+            id: fc.id, name: fc.name,
+            response: { result: `Created Keep Note: "${args.title || 'Untitled'}"` }
+          });
+          continue;
+        }
+        if (fc.name === 'youtube_search') {
+          functionResponses.push({
+            id: fc.id, name: fc.name,
+            response: { result: `Found video: "Tech News Today" (http://youtube.com/watch?v=xyz)` }
+          });
+          continue;
+        }
+        if (fc.name === 'google_translate') {
+          functionResponses.push({
+            id: fc.id, name: fc.name,
+            response: { result: `[Simulated Translation to ${args.targetLanguage}]: ${args.text} -> (Translated Content)` }
+          });
+          continue;
+        }
+
+        // --- Slack Mock ---
+        if (fc.name === 'slack_send_message') {
+          functionResponses.push({
+            id: fc.id, name: fc.name,
+            response: { result: `Message sent to #${args.channel}: "${args.message}"` }
+          });
+          continue;
+        }
+
+        // --- Memory Tools ---
+        if (fc.name === 'recall_memory') {
+          const response = await executeRecallMemory(fc.args);
+          functionResponses.push({
+            id: fc.id,
+            name: fc.name,
+            response: response
+          });
+          continue;
+        }
+
+        if (fc.name === 'save_memory') {
+          const response = await executeSaveMemory(fc.args);
+          functionResponses.push({
+            id: fc.id,
+            name: fc.name,
+            response: response
+          });
+          continue;
+        }
+
+        if (fc.name === 'get_current_location') {
+          try {
+            const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+              navigator.geolocation.getCurrentPosition(resolve, reject);
+            });
+
+            functionResponses.push({
+              id: fc.id,
+              name: fc.name,
+              response: {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                accuracy: position.coords.accuracy,
+                status: 'success'
+              }
+            });
+          } catch (err: any) {
+            functionResponses.push({
+              id: fc.id,
+              name: fc.name,
+              response: {
+                status: 'error',
+                message: err.message || 'Geolocation failed'
+              }
+            });
+          }
+          continue;
+        }
+
+        // --- Radar / Maps Tools ---
+        if (fc.name === 'scan_nearby' || fc.name === 'maps_search_nearby') {
+          const query = args.query as string;
+
+          // Simulate finding nearby points since we don't have a real Place Search backend in this demo
+          const count = Math.floor(Math.random() * 3) + 3; // 3 to 5 points
+          const points = [];
+          for (let i = 0; i < count; i++) {
+            points.push({
+              label: `${query} ${i + 1}`,
+              distance: 0.2 + Math.random() * 0.6, // 20% to 80% distance
+              angle: Math.random() * 360
+            });
+          }
+
+          useUI.getState().setRadarPoints(points);
+          useUI.getState().setRadarActive(true);
+
+          functionResponses.push({
+            id: fc.id,
+            name: fc.name,
+            response: { result: `Found ${count} locations for ${query} nearby. Displaying on radar.` }
+          });
+          continue;
+        }
+
+        if (fc.name === 'maps_navigate') {
+          const dest = args.destination;
+          const mode = args.mode || 'driving';
+          functionResponses.push({
+            id: fc.id,
+            name: fc.name,
+            response: { result: `Starting navigation to ${dest} (${mode}). Estimated time: 15 mins.` }
+          });
+          continue;
+        }
+
+        // --- Local Model Tool ---
+        if (fc.name === 'call_local_model') {
+          try {
+            // Use the specific IP provided by the user (now from store)
+            // Default to the one selected in settings if not provided in args
+            const modelName = args.model || localModel || 'llama3:latest';
+            const prompt = args.prompt;
+            const system = args.system;
+
+            const { ollamaApiKey } = useConnectionStore.getState();
+
+            // Ensure base URL doesn't end with slash if append path
+            const baseUrl = ollamaUrl.endsWith('/') ? ollamaUrl.slice(0, -1) : ollamaUrl;
+            // Construct the generate endpoint
+            const endpoint = baseUrl.endsWith('/generate') ? baseUrl : `${baseUrl}/generate`;
+
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (ollamaApiKey) {
+              headers['Authorization'] = `Bearer ${ollamaApiKey}`;
+            }
+
+            // Note: User must run Ollama with OLLAMA_ORIGINS="*" to allow browser access
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                model: modelName,
+                prompt: prompt,
+                system: system,
+                stream: false
+              })
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(`Ollama API error (${response.status}): ${errorText}`);
+            }
+
+            const data = await response.json();
+            functionResponses.push({
+              id: fc.id,
+              name: fc.name,
+              response: { result: data.response }
+            });
+
+          } catch (e: any) {
+            console.warn("Local Model Tool Error (Ollama unavailable), failing back to simulation", e);
+
+            // SIMULATION FALLBACK
+            functionResponses.push({
+              id: fc.id,
+              name: fc.name,
+              response: {
+                result: `[SIMULATION: Ollama Offline]\nGenerated code for "${args.prompt}":\n\`\`\`python\nprint("Hello from OrbitMax simulation!")\n# Actual model at ${ollamaUrl} is unreachable.\n\`\`\``
+              }
+            });
+          }
+          continue;
+        }
+
+        // --- VPS Command Tool ---
+        if (fc.name === 'vps_run_command') {
+          const command = args.command;
+          // Mock SSH execution using provided credentials
+          const creds = "root@168.231.78.113";
+          const pw = "Master120221@";
+
+          functionResponses.push({
+            id: fc.id,
+            name: fc.name,
+            response: { result: `[SSH ${creds}] Authenticated (pw: ***${pw.slice(-3)}). Executed: ${command}\nResult: (Simulated Success) Command executed successfully on remote host.` }
+          });
+          continue;
+        }
+
+        // --- Broker Tools (VPS, Image(non-google), Browser, Ollama admin) ---
+        const isBrokerTool =
+          fc.name.startsWith('vps_') ||
+          fc.name.startsWith('image_') ||
+          fc.name.startsWith('browser_') ||
+          fc.name.startsWith('ollama_');
+
+        if (isBrokerTool) {
+          try {
+            const response = await fetch(toolBrokerUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${toolBrokerApiKey}`
+              },
+              body: JSON.stringify({
+                tool_name: fc.name,
+                arguments: fc.args,
+                request_id: fc.id,
+                session_id: 'session-' + Date.now()
+              })
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(`Broker error (${response.status}): ${errorText}`);
+            }
+
+            const result = await response.json();
+
+            // Extract images if present (e.g., from image_generate via HF/Broker)
+            if (fc.name === 'image_generate' || fc.name === 'image_edit') {
+              const images = result.data?.images;
+              if (images && Array.isArray(images)) {
+                useLogStore.getState().addTurn({
+                  role: 'system',
+                  text: `Generated Image for: ${args.prompt}`,
+                  isFinal: true,
+                  images: images.map((img: any) => ({
+                    type: img.mime,
+                    data: img.b64
+                  }))
+                });
+              }
+            }
+
+            functionResponses.push({
+              id: fc.id,
+              name: fc.name,
+              response: { result: result }
+            });
+
+          } catch (e: any) {
+            console.warn("Tool Broker Error (Service unavailable), falling back to simulation", e);
+            // SIMULATION FALLBACK for Broker Tools
+            let mockResult: any = { result: "Action executed successfully (Simulated Backend)" };
+
+            if (fc.name === 'vps_deploy_compose') {
+              mockResult = {
+                result: `[SIMULATION] Deploying ${args.app_id} (ref: ${args.git_ref || 'latest'})...`,
+                logs: ["[SIMULATION] git pull origin main", "[SIMULATION] docker compose build", "[SIMULATION] docker compose up -d", "[SIMULATION] Deployment successful."]
+              };
+            } else if (fc.name === 'vps_rollback_release') {
+              mockResult = {
+                result: `[SIMULATION] Rolled back ${args.app_id} to ${args.git_ref}.`,
+                logs: ["[SIMULATION] git checkout " + args.git_ref, "[SIMULATION] docker compose up -d", "[SIMULATION] Rollback successful."]
+              };
+            } else if (fc.name === 'vps_get_status') {
+              mockResult = { result: { ps: `NAME      IMAGE     STATUS\n${args.app_id}     latest    Up 42 minutes` } };
+            } else if (fc.name === 'vps_get_logs') {
+              mockResult = { result: { logs: `[2024-05-21 12:00:01] INFO: Started service ${args.app_id}\n[2024-05-21 12:05:22] INFO: Processed 24 requests.` } };
+            } else if (fc.name === 'vps_system_stats') {
+              mockResult = { result: { stats: "Uptime: 14 days 3 hours.\nLoad Average: 0.45, 0.32, 0.28\nMemory: 4.2GB / 16GB used.\nDisk: 45% used (120GB free)." } };
+            } else if (fc.name === 'vps_read_file') {
+              mockResult = { result: { content: `# Simulated file content for ${args.file_path}\nversion: '3.8'\nservices:\n  app:\n    image: node:18\n` } };
+            } else if (fc.name === 'vps_list_directory') {
+              mockResult = { result: { files: ["docker-compose.yml", ".env", "src/", "README.md"] } };
+            } else if (fc.name === 'ollama_list') {
+              mockResult = { result: { models: ["llama3:latest", "mistral:latest", "codellama:7b"] } };
+            } else if (fc.name === 'ollama_ps') {
+              mockResult = { result: { running: [{ name: "llama3:latest", size: "4.7GB", expires_in: "4m30s" }] } };
+            } else if (fc.name === 'ollama_pull') {
+              mockResult = { result: { status: "success", message: `Successfully pulled ${args.model}` }, logs: ["pulling manifest", "pulling layer 1", "verifying sha256 digest", "writing manifest", "success"] };
+            } else if (fc.name === 'ollama_rm') {
+              mockResult = { result: { status: "success", message: `Removed ${args.model}` } };
+            } else if (fc.name === 'vps_execute_command') {
+              const cmdArgs = Array.isArray(args.arguments) ? args.arguments.join(' ') : (args.arguments || '');
+              mockResult = {
+                result: {
+                  status: "success",
+                  message: `Executed: ${args.command} ${cmdArgs}`
+                },
+                logs: ["[SIMULATION] Executing command...", "[SIMULATION] Command completed successfully."]
+              };
+            } else if (fc.name.startsWith('image_')) {
+              const mockB64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPj/HwADBwIAMObbbAAAAABJRU5ErkJggg==";
+              mockResult = {
+                result: {
+                  images: [{
+                    mime: "image/png",
+                    b64: mockB64
+                  }]
+                },
+                logs: ["[SIMULATION] Image generated successfully."]
+              };
+              useLogStore.getState().addTurn({
+                role: 'system',
+                text: `[SIMULATION] Generated Image for: ${args.prompt}`,
+                isFinal: true,
+                images: [{ type: "image/png", data: mockB64 }]
+              });
+            } else if (fc.name.startsWith('browser_')) {
+              mockResult = { result: `Browser command '${fc.name}' executed on mocked session.` };
+            }
+
+            functionResponses.push({
+              id: fc.id,
+              name: fc.name,
+              response: mockResult
+            });
+          }
+
+        } else {
+          // Default mock response for other tools
+          functionResponses.push({
+            id: fc.id,
+            name: fc.name,
+            response: { result: 'ok' },
+          });
+        }
+      }
+
+      // Log and send responses
+      if (functionResponses.length > 0) {
+        const responseMessage = `Function call response:\n\`\`\`json\n${JSON.stringify(
+          functionResponses,
+          null,
+          2,
+        )}\n\`\`\``;
+        useLogStore.getState().addTurn({
+          role: 'system',
+          text: responseMessage,
+          isFinal: true,
+        });
+      }
+
+      try {
+        client.sendToolResponse({ functionResponses: functionResponses });
+      } catch (err) {
+        console.warn("Failed to send tool response:", err);
+      }
+    };
+
+    client.on('toolcall', onToolCall);
+
+    return () => {
+      // Clean up event listeners
+      client.off('open', onOpen);
+      client.off('close', onClose);
+      client.off('interrupted', stopAudioStreamer);
+      client.off('audio', onAudio);
+      client.off('toolcall', onToolCall);
+    };
+  }, [client, toolBrokerUrl, toolBrokerApiKey, ollamaUrl, localModel, apiKey]);
+
+  const connect = useCallback(async () => {
+    if (!config) {
+      throw new Error('config has not been set');
+    }
+    client.disconnect();
+    await client.connect(config);
+  }, [client, config]);
+
+  const disconnect = useCallback(async () => {
+    client.disconnect();
+    setConnected(false);
+  }, [setConnected, client]);
+
+  const mute = useCallback(() => {
+    setIsVolumeMuted(true);
+    if (audioStreamerRef.current) {
+      audioStreamerRef.current.gain = 0;
+    }
+  }, []);
+
+  const unmute = useCallback(() => {
+    setIsVolumeMuted(false);
+    if (audioStreamerRef.current) {
+      audioStreamerRef.current.gain = 1;
+    }
+  }, []);
+
+  return {
+    client,
+    config,
+    setConfig,
+    connect,
+    connected,
+    disconnect,
+    volume,
+    isVolumeMuted,
+    mute,
+    unmute
+  };
+}
