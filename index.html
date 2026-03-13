@@ -3,328 +3,338 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>OrbitMax // Ultra OS</title>
+    <title>OrbitMax // Mobile Genius</title>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
 
         :root {
-            --bg: #050608;
+            --bg: #000000;
             --surface: #12141a;
-            --surface-hover: #1c1f26;
+            --surface-glass: rgba(18, 20, 26, 0.7);
             --border: rgba(255, 255, 255, 0.08);
             --text-main: #ffffff;
             --text-dim: #9499a6;
-            
-            /* High-End Accents */
+            --lime: #ccff00;
             --blue: #007AFF;
+            --red: #FF3B30;
             --purple: #8b5cf6;
             --green: #34C759;
-            --red: #FF3B30;
             --orange: #FF9500;
-            
-            /* Animation Physics */
             --spring: cubic-bezier(0.19, 1, 0.22, 1);
             --fast: cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        * { 
-            box-sizing: border-box; 
-            margin: 0; 
-            padding: 0; 
-            font-family: 'Plus Jakarta Sans', -apple-system, sans-serif; 
+        [data-theme="light"] {
+            --bg: #f5f7fa;
+            --surface: #ffffff;
+            --surface-glass: rgba(255, 255, 255, 0.8);
+            --border: rgba(0, 0, 0, 0.08);
+            --text-main: #111111;
+            --text-dim: #636366;
+            --lime: #34d399;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0; padding: 0;
+            font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
             -webkit-font-smoothing: antialiased;
+            -webkit-tap-highlight-color: transparent;
         }
 
-        body { 
-            background: var(--bg); 
-            color: var(--text-main); 
-            overflow: hidden; 
-            height: 100vh; 
-            width: 100vw; 
+        body {
+            background-color: var(--bg);
+            color: var(--text-main);
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            transition: background 0.5s var(--fast);
         }
 
-        /* --- AMBIENT DEPTH MESH --- */
-        body::before {
-            content: "";
+        .mesh {
             position: fixed;
-            top: -50%; left: -50%; width: 200%; height: 200%;
-            background: 
-                radial-gradient(circle at 20% 20%, rgba(139, 92, 246, 0.08) 0%, transparent 40%),
-                radial-gradient(circle at 80% 80%, rgba(0, 122, 255, 0.05) 0% , transparent 40%);
+            inset: 0;
             z-index: -1;
+            overflow: hidden;
+            filter: blur(80px);
+            opacity: 0.6;
             pointer-events: none;
         }
-
-        .app-shell { display: flex; height: 100%; position: relative; }
-
-        /* --- SIDEBAR (DESKTOP) --- */
-        .sidebar { 
-            width: 280px; 
-            background: rgba(5, 6, 8, 0.8);
-            backdrop-filter: blur(20px);
-            border-right: 1px solid var(--border); 
-            display: none; 
-            flex-direction: column; 
-            padding: 40px 24px; 
-            z-index: 100; 
+        .mesh-orb {
+            position: absolute;
+            width: 150%; height: 150%;
+            background: radial-gradient(circle at center, rgba(204, 255, 0, 0.08) 0%, transparent 60%);
+            animation: drift 20s infinite alternate ease-in-out;
         }
-        .sidebar-brand { 
-            font-size: 1.5rem; 
-            font-weight: 800; 
-            background: linear-gradient(135deg, #fff 0%, #8b5cf6 100%); 
-            -webkit-background-clip: text; 
-            -webkit-text-fill-color: transparent; 
-            display: flex; 
-            align-items: center; 
-            gap: 12px; 
-            margin-bottom: 50px; 
+        [data-theme="light"] .mesh-orb { background: radial-gradient(circle at center, rgba(0, 122, 255, 0.08) 0%, transparent 60%); }
+
+        @keyframes drift {
+            from { transform: translate(-20%, -20%) rotate(0deg); }
+            to { transform: translate(20%, 20%) rotate(15deg); }
         }
 
-        .nav-item { 
-            display: flex; 
-            align-items: center; 
-            gap: 16px; 
-            padding: 14px 18px; 
-            text-decoration: none; 
-            color: var(--text-dim); 
-            border-radius: 16px; 
-            margin-bottom: 8px; 
-            font-weight: 600; 
-            cursor: pointer; 
-            transition: all 0.3s var(--spring); 
-        }
-        .nav-item:hover, .nav-item.active { 
-            background: var(--surface); 
-            color: var(--text-main); 
-            transform: translateX(5px);
-        }
+        .app-shell { height: 100vh; display: flex; flex-direction: column; position: relative; }
 
-        /* --- VIEWPORT ENGINE --- */
-        .viewport { flex: 1; display: flex; flex-direction: column; position: relative; overflow: hidden; }
-        
-        .view { 
-            display: none; 
-            flex-direction: column; 
-            height: 100%; 
-            width: 100%; 
-            padding: 20px 24px 140px; 
-            overflow-y: auto; 
-            scrollbar-width: none;
-            animation: viewFade 0.5s var(--spring);
-        }
-        .view.active { display: flex; }
-        @keyframes viewFade { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
-
-        /* --- STICKY HEADER --- */
-        .header { 
-            position: sticky; 
-            top: 0; 
-            z-index: 1000; 
-            padding: 24px 0; 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
+        .header {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            padding: 24px;
             background: transparent;
-            transition: 0.3s;
+            backdrop-filter: blur(0px);
+            transition: all 0.3s var(--fast);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
-        .header h2 { font-size: 1.4rem; font-weight: 800; letter-spacing: -0.5px; }
-
-        .hero-section { text-align: center; margin: 20px 0 40px; }
-        .hero-section h1 { font-size: 2.8rem; font-weight: 800; letter-spacing: -2px; margin-bottom: 4px; background: linear-gradient(to bottom, #fff 40%, #888 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .hero-section p { font-size: 1rem; color: var(--text-dim); font-weight: 500; }
-
-        /* --- SPATIAL GRID --- */
-        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px 16px; max-width: 500px; margin: 0 auto; }
-
-        .card { 
-            display: flex; 
-            flex-direction: column; 
-            align-items: center; 
-            gap: 10px; 
-            cursor: pointer; 
-            perspective: 1000px; 
-            text-decoration: none;
+        .header.scrolled {
+            background: var(--surface-glass);
+            backdrop-filter: blur(25px) saturate(180%);
+            -webkit-backdrop-filter: blur(25px) saturate(180%);
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border);
         }
+
+        .brand { font-weight: 800; font-size: 1.2rem; letter-spacing: -1px; display: flex; align-items: center; gap: 8px; }
+        .brand i { color: var(--lime); }
+
+        .btn-ghost {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            width: 42px; height: 42px;
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+        }
+
+        .view-container {
+            flex: 1;
+            overflow-y: auto;
+            scroll-behavior: smooth;
+            padding: 0 20px 160px;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .view { display: none; animation: viewIn 0.5s var(--spring); }
+        .view.active { display: block; }
+
+        @keyframes viewIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+
+        .hero { text-align: center; margin: 20px 0 35px; }
+        .hero h1 { font-size: 2.4rem; font-weight: 800; letter-spacing: -2px; }
+        .hero p { color: var(--text-dim); font-size: 0.95rem; font-weight: 500; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        @media (min-width: 600px) { .grid { grid-template-columns: repeat(6, 1fr); max-width: 800px; } }
+
+        .card { display: flex; flex-direction: column; align-items: center; gap: 8px; cursor: pointer; text-decoration: none; color: inherit; }
         
-        .icon-sq { 
-            width: 72px; 
-            height: 72px; 
-            background: var(--surface); 
-            border: 1px solid var(--border); 
-            border-radius: 22px; 
-            display: flex; 
-            align-items: center; 
-            justify-content: center; 
-            box-shadow: 0 10px 25px rgba(0,0,0,0.3); 
-            position: relative; 
+        .icon-sq {
+            width: 65px;
+            height: 65px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.2);
             transition: all 0.4s var(--spring);
+            position: relative;
         }
+
+        .card:active .icon-sq { transform: scale(0.9); }
         
-        .card:hover .icon-sq { 
-            transform: translateY(-8px) rotateX(10deg) rotateY(-5deg); 
-            border-color: var(--glow-color);
-            box-shadow: 0 20px 40px -10px rgba(0,0,0,0.5), 0 0 20px -5px var(--glow-color);
-        }
-        .card:active .icon-sq { transform: scale(0.9) translateY(0); }
+        .card span { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--text-dim); letter-spacing: 0.5px; }
+
+        .card.active-state .icon-sq { border-width: 1.5px; border-color: var(--accent-color); }
         
-        .card span { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-dim); transition: 0.3s; }
-        .card:hover span { color: var(--text-main); }
+        .c-blue { --accent-color: var(--blue); }
+        .c-lime { --accent-color: var(--lime); }
+        .c-orange { --accent-color: var(--orange); }
+        .c-purple { --accent-color: var(--purple); }
+        .c-red { --accent-color: var(--red); }
+        .c-green { --accent-color: var(--green); }
 
-        /* Color Glows */
-        .c-purple { --glow-color: var(--purple); } .c-blue { --glow-color: var(--blue); } .c-green { --glow-color: var(--green); }
-        .c-red { --glow-color: var(--red); } .c-yellow { --glow-color: var(--orange); } .c-pink { --glow-color: #f472b6; }
-        .c-teal { --glow-color: #2dd4bf; } .c-orange { --glow-color: #fb923c; }
+        .icon-sq i { color: var(--accent-color); stroke-width: 2.5px; }
 
-        .icon-sq i { color: var(--glow-color); transition: 0.3s; }
-
-        /* --- THE GENIUS DOCK (Exactly 5 Icons) --- */
-        .dock-container { position: fixed; bottom: 30px; left: 0; right: 0; display: flex; justify-content: center; padding: 0 20px; z-index: 1000; }
-        .dock { 
-            background: rgba(18, 20, 26, 0.7); 
-            backdrop-filter: blur(35px) saturate(210%); 
-            -webkit-backdrop-filter: blur(35px) saturate(210%); 
-            border: 1px solid var(--border); 
-            border-radius: 36px; 
-            padding: 8px 12px; 
-            display: flex; 
-            align-items: center; 
-            gap: 10px; 
-            box-shadow: 0 40px 80px rgba(0,0,0,0.8); 
+        .dock-wrap {
+            position: fixed;
+            bottom: 30px;
+            left: 0; right: 0;
+            display: flex; justify-content: center;
+            padding: 0 20px;
+            z-index: 2000;
         }
-        .dock-btn { 
-            width: 54px; 
-            height: 54px; 
-            border-radius: 24px; 
-            border: none; 
-            background: transparent; 
-            color: var(--text-dim); 
-            cursor: pointer; 
-            display: flex; 
-            align-items: center; 
-            justify-content: center; 
-            transition: all 0.3s var(--spring); 
+
+        .dock {
+            background: var(--surface-glass);
+            backdrop-filter: blur(30px) saturate(180%);
+            -webkit-backdrop-filter: blur(30px) saturate(180%);
+            border: 1px solid var(--border);
+            border-radius: 36px;
+            padding: 8px 12px;
+            display: flex; align-items: center; gap: 8px;
+            box-shadow: 0 30px 60px rgba(0,0,0,0.6);
         }
-        .dock-btn:hover { color: var(--text-main); transform: translateY(-5px); background: rgba(255,255,255,0.05); }
+
+        .dock-btn {
+            width: 50px; height: 50px;
+            border-radius: 20px;
+            border: none; background: transparent;
+            color: var(--text-dim);
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.3s var(--spring);
+            cursor: pointer;
+        }
         .dock-btn.active { color: var(--blue); background: rgba(0, 122, 255, 0.1); }
-        
-        .dock-btn.main-action { 
-            background: linear-gradient(135deg, var(--blue), var(--purple)); 
-            color: white; 
-            width: 64px; 
-            height: 64px; 
-            border-radius: 28px; 
-            box-shadow: 0 10px 30px rgba(0, 122, 255, 0.4); 
-            margin: 0 6px;
-        }
-        .dock-btn.main-action:hover { transform: translateY(-10px) scale(1.1); box-shadow: 0 15px 40px rgba(0, 122, 255, 0.6); }
+        .dock-btn.main { background: var(--lime); color: #000; width: 64px; height: 64px; border-radius: 26px; box-shadow: 0 10px 25px rgba(204, 255, 0, 0.4); }
+        .dock-btn.main:active { transform: scale(0.85); }
 
-        /* --- APP FRAME OVERLAY --- */
+        /* App Frame Overlay */
         .app-frame-container { 
             position: fixed; 
             inset: 0; 
             background: var(--bg); 
             display: none; 
             flex-direction: column; 
-            z-index: 2000; 
-            animation: frameIn 0.5s var(--spring);
+            z-index: 3000; 
+            animation: frameIn 0.4s var(--spring);
         }
         .app-frame-container.active { display: flex; }
-        @keyframes frameIn { from { opacity: 0; transform: scale(0.9) translateY(100%); } to { opacity: 1; transform: scale(1) translateY(0); } }
+        @keyframes frameIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 
-        .app-frame-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; background: rgba(10,10,10,0.5); backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); }
-        .app-frame-header h3 { font-size: 1.1rem; font-weight: 800; letter-spacing: -0.3px; }
-        .app-frame-close { width: 40px; height: 40px; border-radius: 50%; border: none; background: rgba(255,255,255,0.05); color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-        .app-frame { flex: 1; border: none; width: 100%; background: #000; }
-
-        @media (min-width: 1024px) {
-            .sidebar { display: flex; }
-            .grid { grid-template-columns: repeat(6, 1fr); max-width: 900px; }
-            .hero-section { text-align: left; max-width: 900px; margin: 40px auto; }
-            .header { max-width: 900px; margin: 0 auto 20px; }
+        .app-frame-header { 
+            display: flex; 
+            align-items: center; 
+            justify-content: space-between; 
+            padding: 16px 20px; 
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border); 
         }
+        .app-frame-header h3 { font-size: 1rem; font-weight: 700; color: var(--lime); }
+        .app-frame-close { 
+            width: 36px; height: 36px; 
+            border-radius: 50%; 
+            border: none; 
+            background: rgba(255,255,255,0.05); 
+            color: var(--text-main); 
+            cursor: pointer; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+        }
+        .app-frame { flex: 1; border: none; width: 100%; background: #000; }
     </style>
 </head>
-<body>
+<body data-theme="dark">
+
+    <div class="mesh"><div class="mesh-orb"></div></div>
+
     <div class="app-shell">
-        <aside class="sidebar">
-            <div class="sidebar-brand"><i data-lucide="orbit"></i> OrbitMax</div>
-            <nav>
-                <div class="nav-item active" onclick="navTo('dash')"><i data-lucide="layout-grid"></i> Dashboard</div>
-                <div class="nav-item" onclick="navTo('chat')"><i data-lucide="message-square-text"></i> Assistant</div>
-                <div class="nav-item"><i data-lucide="workflow"></i> Workflows</div>
-                <div class="nav-item"><i data-lucide="settings-2"></i> Settings</div>
-            </nav>
-        </aside>
+        <header class="header" id="header">
+            <div class="brand"><i data-lucide="orbit"></i> ORBITMAX</div>
+            <div style="display: flex; gap: 10px;">
+                <button class="btn-ghost" onclick="toggleTheme()"><i data-lucide="sun" id="tIcon"></i></button>
+                <button class="btn-ghost"><i data-lucide="bell"></i></button>
+            </div>
+        </header>
 
-        <main class="viewport">
-            <!-- VIEW: DASHBOARD -->
+        <div class="view-container" id="scrollArea">
             <section id="view-dash" class="view active">
-                <header class="header">
-                    <h2>Terminal Alpha</h2>
-                    <div style="display: flex; gap: 12px;">
-                        <button class="dock-btn" style="width:40px; height:40px;"><i data-lucide="bell" style="width:18px;"></i></button>
-                    </div>
-                </header>
-
-                <div class="hero-section">
-                    <h1>OrbitMax</h1>
-                    <p>Google Workspace & Autonomous AI Hub</p>
+                <div class="hero">
+                    <h1>Genius Core</h1>
+                    <p>Workspace & System Nodes</p>
                 </div>
 
                 <div class="grid">
-                    <div class="card c-purple" onclick="openApp('https://orbit-voice-app.vercel.app', 'Voice AI')"><div class="icon-sq"><i data-lucide="mic-2"></i></div><span>Voice</span></div>
-                    <div class="card c-blue" onclick="openApp('https://orbit-translator-app.vercel.app', 'Translate')"><div class="icon-sq"><i data-lucide="languages"></i></div><span>Global</span></div>
-                    <div class="card c-teal" onclick="openApp('https://stt-app-theta.vercel.app', 'STT Engine')"><div class="icon-sq"><i data-lucide="audio-lines"></i></div><span>STT</span></div>
-                    <div class="card c-pink" onclick="openApp('https://tts-app-liard-seven.vercel.app', 'TTS Engine')"><div class="icon-sq"><i data-lucide="volume-2"></i></div><span>TTS</span></div>
+                    <!-- AI Tools -->
+                    <a href="https://orbit-voice-app.vercel.app" class="card c-purple" onclick="openApp(event, 'Voice AI')">
+                        <div class="icon-sq"><i data-lucide="mic-2"></i></div><span>Voice</span>
+                    </a>
+                    <a href="https://orbit-translator-app.vercel.app" class="card c-blue" onclick="openApp(event, 'Translate')">
+                        <div class="icon-sq"><i data-lucide="languages"></i></div><span>Global</span>
+                    </a>
+                    <a href="https://stt-app-theta.vercel.app" class="card c-lime" onclick="openApp(event, 'STT')">
+                        <div class="icon-sq"><i data-lucide="audio-lines"></i></div><span>STT</span>
+                    </a>
+                    <a href="https://tts-app-liard-seven.vercel.app" class="card c-purple" onclick="openApp(event, 'TTS')">
+                        <div class="icon-sq"><i data-lucide="volume-2"></i></div><span>TTS</span>
+                    </a>
                     
-                    <div class="card c-red" onclick="openApp('https://mail.google.com/mail/u/0/', 'Gmail')"><div class="icon-sq"><i data-lucide="mail"></i></div><span>Gmail</span></div>
-                    <div class="card c-blue" onclick="openApp('https://calendar.google.com/calendar/r', 'Calendar')"><div class="icon-sq"><i data-lucide="calendar"></i></div><span>Events</span></div>
-                    <div class="card c-green" onclick="openApp('https://drive.google.com/drive/u/0/', 'Google Drive')"><div class="icon-sq"><i data-lucide="hard-drive"></i></div><span>Cloud</span></div>
-                    <div class="card c-yellow" onclick="openApp('https://keep.google.com/', 'Google Keep')"><div class="icon-sq"><i data-lucide="lightbulb"></i></div><span>Notes</span></div>
+                    <!-- Google Workspace -->
+                    <a href="https://mail.google.com/mail/u/0/" target="_blank" class="card c-red">
+                        <div class="icon-sq"><i data-lucide="mail"></i></div><span>Gmail</span>
+                    </a>
+                    <a href="https://calendar.google.com/calendar/r" target="_blank" class="card c-blue">
+                        <div class="icon-sq"><i data-lucide="calendar"></i></div><span>Plan</span>
+                    </a>
+                    <a href="https://drive.google.com/drive/u/0/" target="_blank" class="card c-green">
+                        <div class="icon-sq"><i data-lucide="hard-drive"></i></div><span>Drive</span>
+                    </a>
+                    <a href="https://keep.google.com/" target="_blank" class="card c-orange">
+                        <div class="icon-sq"><i data-lucide="lightbulb"></i></div><span>Keep</span>
+                    </a>
 
-                    <div class="card c-blue" onclick="openApp('https://docs.google.com/document/u/0/', 'Google Docs')"><div class="icon-sq"><i data-lucide="file-text"></i></div><span>Docs</span></div>
-                    <div class="card c-green" onclick="openApp('https://docs.google.com/spreadsheets/u/0/', 'Sheets')"><div class="icon-sq"><i data-lucide="table-2"></i></div><span>Sheets</span></div>
-                    <div class="card c-orange" onclick="openApp('https://slack.com/', 'Slack')"><div class="icon-sq"><i data-lucide="message-circle"></i></div><span>Slack</span></div>
-                    <div class="card c-purple" onclick="openApp('https://chat.openai.com/', 'ChatGPT')"><div class="icon-sq"><i data-lucide="bot"></i></div><span>OpenAI</span></div>
+                    <a href="https://docs.google.com/document/u/0/" target="_blank" class="card c-blue">
+                        <div class="icon-sq"><i data-lucide="file-text"></i></div><span>Docs</span>
+                    </a>
+                    <a href="https://docs.google.com/spreadsheets/u/0/" target="_blank" class="card c-green">
+                        <div class="icon-sq"><i data-lucide="table-2"></i></div><span>Sheets</span>
+                    </a>
+                    <a href="https://docs.google.com/presentation/u/0/" target="_blank" class="card c-orange">
+                        <div class="icon-sq"><i data-lucide="presentation"></i></div><span>Slides</span>
+                    </a>
+                    <a href="https://slack.com/" target="_blank" class="card c-purple">
+                        <div class="icon-sq"><i data-lucide="message-circle"></i></div><span>Slack</span>
+                    </a>
 
-                    <div class="card c-teal" onclick="openApp('http://168.231.78.113:3000', 'VPS Terminal')"><div class="icon-sq"><i data-lucide="server"></i></div><span>VPS</span></div>
-                    <div class="card c-green" onclick="openApp('http://168.231.78.113:11434', 'Ollama Node')"><div class="icon-sq"><i data-lucide="terminal"></i></div><span>Ollama</span></div>
+                    <!-- AI Models -->
+                    <a href="https://chat.openai.com/" target="_blank" class="card c-green">
+                        <div class="icon-sq"><i data-lucide="bot"></i></div><span>OpenAI</span>
+                    </a>
+                    <a href="https://claude.ai/" target="_blank" class="card c-orange">
+                        <div class="icon-sq"><i data-lucide="sparkles"></i></div><span>Claude</span>
+                    </a>
+                    
+                    <!-- System -->
+                    <a href="http://168.231.78.113:3000" target="_blank" class="card c-blue">
+                        <div class="icon-sq"><i data-lucide="server"></i></div><span>VPS</span>
+                    </a>
+                    <a href="http://168.231.78.113:11434" target="_blank" class="card c-green">
+                        <div class="icon-sq"><i data-lucide="terminal"></i></div><span>Ollama</span>
+                    </a>
                 </div>
             </section>
 
-            <!-- VIEW: ASSISTANT -->
             <section id="view-chat" class="view">
-                <header class="header">
-                    <h1>AI Assistant</h1>
-                </header>
-                <div style="flex:1; max-width:600px; margin:0 auto; width:100%; position:relative;">
-                    <iframe src="https://orbit-voice-app.vercel.app" style="position:absolute; inset:0; border:none; border-radius:24px; background:var(--surface);"></iframe>
-                </div>
+                <iframe src="https://orbit-voice-app.vercel.app" style="width:100%; height:100%; border:none; border-radius:20px; background:var(--surface);"></iframe>
             </section>
+        </div>
 
-            <!-- THE 5-ICON DEFINITIVE DOCK -->
-            <div class="dock-container">
-                <nav class="dock">
-                    <!-- 1. Dashboard -->
-                    <button id="dock-dash" class="dock-btn active" onclick="navTo('dash')" title="Dashboard"><i data-lucide="layout-grid"></i></button>
-                    <!-- 2. Flows -->
-                    <button class="dock-btn" title="Workflows"><i data-lucide="workflow"></i></button>
-                    <!-- 3. MAIN COMMAND (VOICE/INPUT) -->
-                    <button class="dock-btn main-action" onclick="navTo('chat')" title="Orbit Command"><i data-lucide="mic"></i></button>
-                    <!-- 4. Assistant Chat -->
-                    <button id="dock-chat" class="dock-btn" onclick="navTo('chat')" title="Assistant"><i data-lucide="message-square-text"></i></button>
-                    <!-- 5. Settings -->
-                    <button class="dock-btn" title="Settings"><i data-lucide="settings-2"></i></button>
-                </nav>
-            </div>
-        </main>
+        <div class="dock-wrap">
+            <nav class="dock">
+                <button id="d-dash" class="dock-btn active" onclick="nav('dash')"><i data-lucide="layout-grid"></i></button>
+                <button class="dock-btn"><i data-lucide="workflow"></i></button>
+                <button class="dock-btn main" onclick="nav('chat')"><i data-lucide="mic"></i></button>
+                <button class="dock-btn"><i data-lucide="search"></i></button>
+                <button class="dock-btn"><i data-lucide="settings-2"></i></button>
+            </nav>
+        </div>
     </div>
 
-    <!-- APP OVERLAY -->
+    <!-- App Frame -->
     <div id="appFrame" class="app-frame-container">
         <div class="app-frame-header">
-            <h3 id="appTitle">Node Terminal</h3>
+            <h3 id="appTitle">App</h3>
             <button class="app-frame-close" onclick="closeApp()"><i data-lucide="x"></i></button>
         </div>
         <iframe id="appIframe" class="app-frame"></iframe>
@@ -333,24 +343,38 @@
     <script>
         lucide.createIcons();
 
-        function navTo(view) {
-            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-            document.getElementById('view-' + view).classList.add('active');
-            
+        const scrollArea = document.getElementById('scrollArea');
+        const header = document.getElementById('header');
+        
+        scrollArea.addEventListener('scroll', () => {
+            if (scrollArea.scrollTop > 40) header.classList.add('scrolled');
+            else header.classList.remove('scrolled');
+        });
+
+        function nav(v) {
+            document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
+            document.getElementById('view-' + v).classList.add('active');
             document.querySelectorAll('.dock-btn').forEach(b => b.classList.remove('active'));
-            if(view === 'dash') document.getElementById('dock-dash').classList.add('active');
-            if(view === 'chat') document.getElementById('dock-chat').classList.add('active');
-            
-            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-            if(view === 'dash') document.querySelectorAll('.nav-item')[0].classList.add('active');
-            if(view === 'chat') document.querySelectorAll('.nav-item')[1].classList.add('active');
+            document.querySelectorAll('.dock-btn')[v === 'dash' ? 0 : v === 'chat' ? 2 : 3].classList.add('active');
+            scrollArea.scrollTop = 0;
         }
 
-        function openApp(url, title) {
+        function toggleTheme() {
+            const body = document.body;
+            const icon = document.getElementById('tIcon');
+            const isDark = body.getAttribute('data-theme') !== 'light';
+            body.setAttribute('data-theme', isDark ? 'light' : 'dark');
+            icon.setAttribute('data-lucide', isDark ? 'moon' : 'sun');
+            lucide.createIcons();
+        }
+
+        function openApp(e, title) {
+            e.preventDefault();
+            const url = e.currentTarget.href;
             const frame = document.getElementById('appFrame');
             const iframe = document.getElementById('appIframe');
             const titleEl = document.getElementById('appTitle');
-            titleEl.textContent = title || "Orbit Node";
+            titleEl.textContent = title;
             iframe.src = url;
             frame.classList.add('active');
         }
@@ -362,21 +386,9 @@
             frame.classList.remove('active');
         }
 
-        // Turbo Genius Micro-Tilt Effect
         document.querySelectorAll('.card').forEach(card => {
-            card.addEventListener('mousemove', e => {
-                const rect = card.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const y = e.clientY - rect.top;
-                const xc = rect.width / 2;
-                const yc = rect.height / 2;
-                const dx = x - xc;
-                const dy = y - yc;
-                card.querySelector('.icon-sq').style.transform = 
-                    `translateY(-8px) rotateX(${-dy/4}deg) rotateY(${dx/4}deg) scale(1.05)`;
-            });
-            card.addEventListener('mouseleave', () => {
-                card.querySelector('.icon-sq').style.transform = '';
+            card.addEventListener('click', () => {
+                if(window.navigator.vibrate) window.navigator.vibrate(10);
             });
         });
     </script>
