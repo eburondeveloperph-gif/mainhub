@@ -1,9 +1,0 @@
-{
-  "name": "orbit-max",
-  "version": "1.0.0",
-  "type": "module",
-  "scripts": {
-    "build": "echo 'No build needed'",
-    "vercel-build": "echo 'Static site'"
-  }
-}
